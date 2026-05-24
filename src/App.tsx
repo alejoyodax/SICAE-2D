@@ -17,10 +17,10 @@ interface CeldaGrilla {
   direccion: { ux: number; uy: number }; // vector unitario (dirección)
   magnitud: number; // magnitud del campo en N/C o V/m
   // opcional: cachedAngle?: number;
-}
+}clearInterval
 
 // Función para generar una grilla de puntos basada en altura y anchura de la pantalla
-const generarGrillaInicial = (ancho: number, alto: number, espaciado: number = 100): CeldaGrilla[] => {
+const generarGrillaInicial = (ancho: number, alto: number, espaciado: number = 90): CeldaGrilla[] => {
   const celdas: CeldaGrilla[] = [];
   
   for (let x = espaciado / 2; x < ancho; x += espaciado) {
@@ -44,8 +44,8 @@ const mapMagnitudToOpacity = (magnitud: number, minMagnitud: number, maxMagnitud
 };
 
 // Función para calcular el campo eléctrico en un punto debido a una carga
-// Usa píxeles como nanómetros (1 px = 1 nm)
-// k es un factor de escala para ajustar la intensidad del campo
+// Usa píxeles como medida de distancia (no afecta la simulación)
+// k nos define la intensidad del campo
 const calcularCampoEnPunto = (
   posicionPunto: { x: number; y: number },
   carga: Carga,
@@ -61,7 +61,7 @@ const calcularCampoEnPunto = (
 
   // Magnitud del campo: E = k * q / r²
   const magnitudCampo = (k * carga.magnitud) / (distancia * distancia);
-
+3
   // Dirección: vector unitario desde carga al punto
   // Para carga negativa, el campo apunta hacia la carga (invertir dirección)
   const signo = carga.signo === 'negativa' ? -1 : 1;
@@ -132,7 +132,7 @@ const App = () => {
   const [maxMagnitudDisplay, setMaxMagnitudDisplay] = useState(10);
   const [constanteK, setConstanteK] = useState(100);
 
-  // Refs para throttle y estado temporal
+  // Refs para acceso rápido sin re-renders
   const cargasRef = useRef(cargas);
   const celdasRef = useRef(celdas);
   const constanteKRef = useRef(constanteK);
@@ -171,6 +171,55 @@ const App = () => {
       }}>
         <Stage width={window.innerWidth} height={window.innerHeight - 60}>
           <Layer>
+            {/* Renderizar flechas de la grilla o puntos si magnitud es cero */}
+            {celdas.map((celda, index) => {
+              // Si la magnitud es efectivamente cero o muy cercana a cero, mostrar un punto
+              if (celda.magnitud < 0.001) {
+                return (
+                  <Circle
+                    key={`point-${index}`}
+                    x={celda.posicion.x}
+                    y={celda.posicion.y - 60}
+                    radius={2}
+                    fill="#5e81ac"
+                    opacity={0.4}
+                  />
+                );
+              }
+
+              // Si hay magnitud, mostrar flecha
+              const opacity = Math.max(0.3, mapMagnitudToOpacity(celda.magnitud, 0, maxMagnitudDisplay, minOpacity, maxOpacity));
+              const largoFlecha = 30;
+              const x1 = celda.posicion.x;
+              const y1 = celda.posicion.y - 60;
+              const x2 = x1 + celda.direccion.ux * largoFlecha;
+              const y2 = y1 + celda.direccion.uy * largoFlecha;
+
+              return (
+                <Arrow
+                  key={`arrow-${index}`}
+                  points={[x1, y1, x2, y2]}
+                  pointerLength={8}
+                  pointerWidth={8}
+                  fill="white"
+                  stroke="white"
+                  strokeWidth={3}
+                  opacity={opacity}
+                  shadowColor="black"
+                  shadowBlur={1}
+                />
+              );
+            })}
+            {/* Debug: mostrar cantidad de flechas */}
+            <Text 
+              text={`Cargas: ${cargas.length} | Celdas: ${celdas.length}`} 
+              x={10} 
+              y={30}
+              fill="#eceff4"
+              fontSize={14}
+            />
+          </Layer>
+          <Layer>
             {/* Renderizar las cargas eléctricas */}
             {cargas.map((carga, index) => (
               <Circle
@@ -181,24 +230,18 @@ const App = () => {
                 style={{ cursor: 'pointer' }}
                 draggable
                 onDragMove={(e) => {
-                  // Solo actualizar la posición visual, NO recalcular la grilla
-                  setPosition({ x: e.target.x(), y: e.target.y() });
-                  // Actualizar refs para saber la posición actual sin re-renderizar
-                  cargasRef.current = cargasRef.current.map((c, i) =>
+                  // NO hacer nada durante el arrastre - sin setState
+                }}
+                onDragEnd={(e) => {
+                  // Actualizar la carga y recalcular la grilla al soltar
+                  const nuevasCargas = cargas.map((c, i) =>
                     i === index
                       ? { ...c, posicion: { x: e.target.x(), y: e.target.y() + 60 } }
                       : c
                   );
-                }}
-                onDragEnd={(e) => {
-                  // Actualizar grilla SOLO al terminar el drag
-                  const nuevasCargas = cargasRef.current.map((c, i) =>
-                    i === index
-                      ? { ...c, posicion: { x: e.target.x(), y: e.target.y() + 60 } }
-                      : c
-                  ) as Carga[];
                   setCargas(nuevasCargas as any);
-                  const grillaActualizada = actualizarGrilla(celdasRef.current, nuevasCargas, constanteKRef.current);
+                  setPosition({ x: e.target.x(), y: e.target.y() });
+                  const grillaActualizada = actualizarGrilla(celdas, nuevasCargas as Carga[], constanteK);
                   setCeldas(grillaActualizada);
                 }}
                 onClick={() => {
@@ -207,7 +250,7 @@ const App = () => {
                   const grillaActualizada = actualizarGrilla(celdas, nuevasCargas as Carga[], constanteK);
                   setCeldas(grillaActualizada);
                 }}
-                fill={carga.signo == "negativa" ? '#bf616a' : '#81a1c1'}
+                fill={carga.signo == "negativa" ? '#FF0000' : '#0066FF'}
                 shadowColor="black"
                 shadowBlur={8}
                 shadowOpacity={0.6}
@@ -222,55 +265,6 @@ const App = () => {
 
           {/* Mostrar la posición del círculo */}
           <Text text={`Pos: (${position.x.toFixed(0)}, ${(position.y - 60).toFixed(0)})`} x={10} y={10} fill="#d8dee9" fontSize={12} />  
-        </Layer>
-        <Layer>
-          {/* Renderizar flechas de la grilla o puntos si magnitud es cero */}
-          {celdas.map((celda, index) => {
-            // Si la magnitud es efectivamente cero o muy cercana a cero, mostrar un punto
-            if (celda.magnitud < 0.001) {
-              return (
-                <Circle
-                  key={`point-${index}`}
-                  x={celda.posicion.x}
-                  y={celda.posicion.y - 60}
-                  radius={2}
-                  fill="#5e81ac"
-                  opacity={0.4}
-                />
-              );
-            }
-
-            // Si hay magnitud, mostrar flecha
-            const opacity = Math.max(0.3, mapMagnitudToOpacity(celda.magnitud, 0, maxMagnitudDisplay, minOpacity, maxOpacity));
-            const largoFlecha = 30;
-            const x1 = celda.posicion.x;
-            const y1 = celda.posicion.y - 60;
-            const x2 = x1 + celda.direccion.ux * largoFlecha;
-            const y2 = y1 + celda.direccion.uy * largoFlecha;
-
-            return (
-              <Arrow
-                key={`arrow-${index}`}
-                points={[x1, y1, x2, y2]}
-                pointerLength={6}
-                pointerWidth={6}
-                fill="#a3be8c"
-                stroke="#a3be8c"
-                strokeWidth={2}
-                opacity={opacity}
-                shadowColor="black"
-                shadowBlur={1}
-              />
-            );
-          })}
-          {/* Debug: mostrar cantidad de flechas */}
-          <Text 
-            text={`Cargas: ${cargas.length} | Celdas: ${celdas.length}`} 
-            x={10} 
-            y={30}
-            fill="#eceff4"
-            fontSize={14}
-          />
         </Layer>
       </Stage>
 
